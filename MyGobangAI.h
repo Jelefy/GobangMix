@@ -50,16 +50,16 @@ namespace Gobang {
 			Board board[N][N] = {};
 			struct ScoreManager {	//The maintainance of scores using State Compression (compresses the state of single rows: horizonal, vertical, diagonal, then adds their scores together)
 				int pow3[N * 2] = { 1 };
-				int* score[3];
+				int* score[3][N + 1];
 				int ln[N] = {}, col[N] = {}, crx[N * 2] = {}, cry[N * 2] = {};	//ln: horizonal, col: vertical, crx: diagonal (+, +), cry: diagonal (+, -)
 				int crxlen[N * 2], crylen[N * 2];	//the length of diagonal rows
-				std::vector<int> crxclst[N * 2], cryclst[N * 2];	//the closest chess from the end of the row (rows of different lengths are aligned to the left side, so the end means the right side, or the last place of the row)
 				int ans[3] = {};	//the score of AI / PLYR
 				ScoreManager() {
 					for (int i = 1; i < N * 2; i++)
 						pow3[i] = pow3[i - 1] * 3;
-					for (int i = 0; i < 3; i++)
-						score[i] = new int[pow(3, N)]();
+					for (int i = 1; i < 3; i++)
+						for (int j = 1; j <= N; j++)
+							score[i][j] = new int[pow(3, j)]();
 					for (int i = 1; i <= N; i++) {
 						crxlen[i] = i;
 						crxlen[2 * N - i] = i;
@@ -73,25 +73,13 @@ namespace Gobang {
 					int idcrx = pos.x - pos.y + N, atcrx = min(pos.x, pos.y);
 					int idcry = pos.x + pos.y, atcry = (idcry >= N) ? pos.x - (idcry - N + 1) : pos.x;
 					for (int i = 1; i < 3; i++)
-						ans[i] -= score[i][ln[idln]] + score[i][col[idcol]] + score[i][crx[idcrx]] + score[i][cry[idcry]];	//When one piece is changed, 4 rows will be changed, including 1 horizonal, 1 vertical, 2 diagonal
+						ans[i] -= score[i][N][ln[idln]] + score[i][N][col[idcol]] + score[i][crxlen[idcrx]][crx[idcrx]] + score[i][crylen[idcry]][cry[idcry]];	//When one piece is changed, 4 rows will be changed, including 1 horizonal, 1 vertical, 2 diagonal
 					ln[idln] += pow3[atln] * idn;
 					col[idcol] += pow3[atcol] * idn;
 					crx[idcrx] += pow3[atcrx] * idn;
 					cry[idcry] += pow3[atcry] * idn;
-					if (crxlen[idcrx] < N && (crxclst[idcrx].empty() || atcrx > crxclst[idcrx].back())) {	//place a placeholder piece different from the closest-from-end piece to prevent over-scoring (not perfect but OK)
-						if (!crxclst[idcrx].empty())
-							crx[idcrx] -= pow3[crxlen[idcrx]] * Opponent(crx[idcrx] / pow3[crxclst[idcrx].back()] % 3);
-						crxclst[idcrx].push_back(atcrx);
-						crx[idcrx] += pow3[crxlen[idcrx]] * Opponent(idn);
-					}
-					if (crylen[idcry] < N && (cryclst[idcry].empty() || atcry > cryclst[idcry].back())) {
-						if (!cryclst[idcry].empty())
-							cry[idcry] -= pow3[crylen[idcry]] * Opponent(cry[idcry] / pow3[cryclst[idcry].back()] % 3);
-						cryclst[idcry].push_back(atcry);
-						cry[idcry] += pow3[crylen[idcry]] * Opponent(idn);
-					}
 					for (int i = 1; i < 3; i++)
-						ans[i] += score[i][ln[idln]] + score[i][col[idcol]] + score[i][crx[idcrx]] + score[i][cry[idcry]];
+						ans[i] += score[i][N][ln[idln]] + score[i][N][col[idcol]] + score[i][crxlen[idcrx]][crx[idcrx]] + score[i][crylen[idcry]][cry[idcry]];
 				}
 				void pop(Position pos, Board idn) {	//unplace a placed piece
 					int idln = pos.x, atln = pos.y;
@@ -99,40 +87,28 @@ namespace Gobang {
 					int idcrx = pos.x - pos.y + N, atcrx = min(pos.x, pos.y);
 					int idcry = pos.x + pos.y, atcry = (idcry >= N) ? pos.x - (idcry - N + 1) : pos.x;
 					for (int i = 1; i < 3; i++)
-						ans[i] -= score[i][ln[idln]] + score[i][col[idcol]] + score[i][crx[idcrx]] + score[i][cry[idcry]];
+						ans[i] -= score[i][N][ln[idln]] + score[i][N][col[idcol]] + score[i][crxlen[idcrx]][crx[idcrx]] + score[i][crylen[idcry]][cry[idcry]];	//When one piece is changed, 4 rows will be changed, including 1 horizonal, 1 vertical, 2 diagonal
 					ln[idln] -= pow3[atln] * idn;
 					col[idcol] -= pow3[atcol] * idn;
 					crx[idcrx] -= pow3[atcrx] * idn;
 					cry[idcry] -= pow3[atcry] * idn;
-					if (crxlen[idcrx] < N && crxclst[idcrx].back() == atcrx) {
-						crx[idcrx] -= pow3[crxlen[idcrx]] * Opponent(idn);
-						crxclst[idcrx].pop_back();
-						if (!crxclst[idcrx].empty())
-							crx[idcrx] += pow3[crxlen[idcrx]] * Opponent(crx[idcrx] / pow3[crxclst[idcrx].back()] % 3);
-					}
-					if (crylen[idcry] < N && cryclst[idcry].back() == atcry) {
-						cry[idcry] -= pow3[crylen[idcry]] * Opponent(idn);
-						cryclst[idcry].pop_back();
-						if (!cryclst[idcry].empty())
-							cry[idcry] += pow3[crylen[idcry]] * Opponent(cry[idcry] / pow3[cryclst[idcry].back()] % 3);
-					}
 					for (int i = 1; i < 3; i++)
-						ans[i] += score[i][ln[idln]] + score[i][col[idcol]] + score[i][crx[idcrx]] + score[i][cry[idcry]];
+						ans[i] += score[i][N][ln[idln]] + score[i][N][col[idcol]] + score[i][crxlen[idcrx]][crx[idcrx]] + score[i][crylen[idcry]][cry[idcry]];
 				}
 			};
 			struct ScoreManagerManager {	//manage the scoremanager in two different situations (forgive my hilarious naming) as well as calculating the scores of compressed states
 				ScoreManager ailast, plyrlast;	//ailast: AI is the player who has just made a move / plyrlast: similarly
-				static void CalcScore(bool& over, ScoreManager* ailastptr, ScoreManager* plyrlastptr, int l, int r) {	//Calc the score of compressed states between l and r
+				static void CalcScore(bool& over, ScoreManager* ailastptr, ScoreManager* plyrlastptr, int n, int l, int r) {	//Calc the score of compressed states between l and r
 					ScoreManager& ailast = *ailastptr;
 					ScoreManager& plyrlast = *plyrlastptr;
 					for (int hash = l; hash < r; hash++) {	//I call the compressed state as "hash"
 						int tmp = hash;
-						Board pc[N];	//pieces of the row
-						for (int i = 0; i < N; i++) {
+						Board* pc = new Board[n];	//pieces of the row
+						for (int i = 0; i < n; i++) {
 							pc[i] = tmp % 3;
 							tmp /= 3;
 						}
-						for (int i = 0; i + 5 <= N; i++) {
+						for (int i = 0; i + 5 <= n; i++) {
 							Board idn = BD_NOPC;
 							int cnt = 0;
 							for (int j = i; j < i + 5; j++)
@@ -145,16 +121,17 @@ namespace Gobang {
 									cnt++;
 								}
 							if (idn == BD_NOPC) {
-								plyrlast.score[BD_AI][hash] += BLACK_SCORE[0];
-								plyrlast.score[BD_PLYR][hash] += WHITE_SCORE[0];
-								ailast.score[BD_AI][hash] += WHITE_SCORE[0];
-								ailast.score[BD_PLYR][hash] += BLACK_SCORE[0];
+								plyrlast.score[BD_AI][n][hash] += BLACK_SCORE[0];
+								plyrlast.score[BD_PLYR][n][hash] += WHITE_SCORE[0];
+								ailast.score[BD_AI][n][hash] += WHITE_SCORE[0];
+								ailast.score[BD_PLYR][n][hash] += BLACK_SCORE[0];
 							}
 							else if (cnt != -1) {
-								plyrlast.score[idn][hash] += idn == BD_AI ? BLACK_SCORE[cnt] : WHITE_SCORE[cnt];
-								ailast.score[idn][hash] += idn == BD_AI ? WHITE_SCORE[cnt] : BLACK_SCORE[cnt];
+								plyrlast.score[idn][n][hash] += idn == BD_AI ? BLACK_SCORE[cnt] : WHITE_SCORE[cnt];
+								ailast.score[idn][n][hash] += idn == BD_AI ? WHITE_SCORE[cnt] : BLACK_SCORE[cnt];
 							}
 						}
+						delete pc;
 					}
 					over = true;
 				}
@@ -162,28 +139,31 @@ namespace Gobang {
 					SYSTEM_INFO sysInfo;
 					GetSystemInfo(&sysInfo);
 					int proccnt = sysInfo.dwNumberOfProcessors;
-					bool* over = new bool[proccnt]();	//the thread is ended or not
-					int n = pow(3, N), m = n % proccnt, k = n / proccnt, s = 0;
-					for (int i = 0; i < m; i++) {
-						std::thread(CalcScore, std::ref(over[i]), &ailast, &plyrlast, s, s + k + 1).detach();
-						s += k + 1;
-					}
-					int _s = s;
-					s += k;
-					for (int i = m + 1; i < proccnt; i++) {
-						std::thread(CalcScore, std::ref(over[i]), &ailast, &plyrlast, s, s + k).detach();
+					for (int len = 1; len <= N; len++) {
+						bool* over = new bool[proccnt]();	//the thread is ended or not
+						int n = pow(3, len), m = n % proccnt, k = n / proccnt, s = 0;
+						for (int i = 0; i < m; i++) {
+							std::thread(CalcScore, std::ref(over[i]), &ailast, &plyrlast, len, s, s + k + 1).detach();
+							s += k + 1;
+						}
+						int _s = s;
 						s += k;
+						for (int i = m + 1; i < proccnt; i++) {
+							std::thread(CalcScore, std::ref(over[i]), &ailast, &plyrlast, len, s, s + k).detach();
+							s += k;
+						}
+						CalcScore(over[m], &ailast, &plyrlast, len, _s, _s + k);	//prevent the function from being "optimized" by O2 optimization
+						bool running;// one or more of the threads are still running
+						do {
+							running = false;
+							for (int i = 0; i < proccnt; i++)
+								if (!over[i]) {
+									running = true;
+									break;
+								}
+						} while (running);
+						delete over;
 					}
-					CalcScore(over[m], &ailast, &plyrlast, _s, _s + k);	//prevent the function from being "optimized" by O2 optimization
-					bool running;// one or more of the threads are still running
-					do {
-						running = false;
-						for (int i = 0; i < proccnt; i++)
-							if (!over[i]) {
-								running = true;
-								break;
-							}
-					} while (running);
 				}
 				void push(Position pos, Board idn) {
 					ailast.push(pos, idn);
@@ -257,7 +237,7 @@ namespace Gobang {
 			struct MCTSInfo {	//the info of child node
 				int all = 0;	//how many times the child node is selected/simulated
 				long long score = 0x8000000000000001;	//the score of the child node
-				MCTSInfo(){}
+				MCTSInfo() {}
 				MCTSInfo(long long _score) {
 					all++;
 					score = _score;
@@ -272,7 +252,7 @@ namespace Gobang {
 					for (const std::pair<long long, MCTSInfo>& pr : info)
 						delete ((MCTSNode*)pr.first);
 				}
-				long long Build(int& now, int &depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn, const std::map<long long, MCTSInfo>& lastinfo) {
+				long long Build(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn, const std::map<long long, MCTSInfo>& lastinfo) {
 					now++;
 					depth = max(depth, now);
 					board[pos.x][pos.y] = idn;
