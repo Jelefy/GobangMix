@@ -2,10 +2,8 @@
 #define __MyGobangAI_H
 #include "MyGobangBase.h"
 #include <cstring>
-#include <thread>
 #include <unordered_set>
 #include <map>
-#include <vector>
 #include <cmath>
 #include <cfloat>
 #include <windows.h>
@@ -98,72 +96,40 @@ namespace Gobang {
 			};
 			struct ScoreManagerManager {	//manage the scoremanager in two different situations (forgive my hilarious naming) as well as calculating the scores of compressed states
 				ScoreManager ailast, plyrlast;	//ailast: AI is the player who has just made a move / plyrlast: similarly
-				static void CalcScore(bool& over, ScoreManager* ailastptr, ScoreManager* plyrlastptr, int n, int l, int r) {	//Calc the score of compressed states between l and r
-					ScoreManager& ailast = *ailastptr;
-					ScoreManager& plyrlast = *plyrlastptr;
-					for (int hash = l; hash < r; hash++) {	//I call the compressed state as "hash"
-						int tmp = hash;
-						Board* pc = new Board[n];	//pieces of the row
-						for (int i = 0; i < n; i++) {
-							pc[i] = tmp % 3;
-							tmp /= 3;
-						}
-						for (int i = 0; i + 5 <= n; i++) {
-							Board idn = BD_NOPC;
-							int cnt = 0;
-							for (int j = i; j < i + 5; j++)
-								if (pc[j] != BD_NOPC) {
-									if (idn == Opponent(pc[j])) {
-										cnt = -1;
-										break;
+				ScoreManagerManager() {	//calc the score
+					for (int n = 1; n <= N; n++)
+						for (int hash = pow(3, n) - 1; hash >= 0; hash--) {	//I call the compressed state as "hash"
+							int tmp = hash;
+							Board* pc = new Board[n];	//pieces of the row
+							for (int i = 0; i < n; i++) {
+								pc[i] = tmp % 3;
+								tmp /= 3;
+							}
+							for (int i = 0; i + 5 <= n; i++) {
+								Board idn = BD_NOPC;
+								int cnt = 0;
+								for (int j = i; j < i + 5; j++)
+									if (pc[j] != BD_NOPC) {
+										if (idn == Opponent(pc[j])) {
+											cnt = -1;
+											break;
+										}
+										idn = pc[j];
+										cnt++;
 									}
-									idn = pc[j];
-									cnt++;
+								if (idn == BD_NOPC) {
+									plyrlast.score[BD_AI][n][hash] += BLACK_SCORE[0];
+									plyrlast.score[BD_PLYR][n][hash] += WHITE_SCORE[0];
+									ailast.score[BD_AI][n][hash] += WHITE_SCORE[0];
+									ailast.score[BD_PLYR][n][hash] += BLACK_SCORE[0];
 								}
-							if (idn == BD_NOPC) {
-								plyrlast.score[BD_AI][n][hash] += BLACK_SCORE[0];
-								plyrlast.score[BD_PLYR][n][hash] += WHITE_SCORE[0];
-								ailast.score[BD_AI][n][hash] += WHITE_SCORE[0];
-								ailast.score[BD_PLYR][n][hash] += BLACK_SCORE[0];
-							}
-							else if (cnt != -1) {
-								plyrlast.score[idn][n][hash] += idn == BD_AI ? BLACK_SCORE[cnt] : WHITE_SCORE[cnt];
-								ailast.score[idn][n][hash] += idn == BD_AI ? WHITE_SCORE[cnt] : BLACK_SCORE[cnt];
-							}
-						}
-						delete pc;
-					}
-					over = true;
-				}
-				ScoreManagerManager() {	//calc the score using multi-threading
-					SYSTEM_INFO sysInfo;
-					GetSystemInfo(&sysInfo);
-					int proccnt = sysInfo.dwNumberOfProcessors;
-					for (int len = 1; len <= N; len++) {
-						bool* over = new bool[proccnt]();	//the thread is ended or not
-						int n = pow(3, len), m = n % proccnt, k = n / proccnt, s = 0;
-						for (int i = 0; i < m; i++) {
-							std::thread(CalcScore, std::ref(over[i]), &ailast, &plyrlast, len, s, s + k + 1).detach();
-							s += k + 1;
-						}
-						int _s = s;
-						s += k;
-						for (int i = m + 1; i < proccnt; i++) {
-							std::thread(CalcScore, std::ref(over[i]), &ailast, &plyrlast, len, s, s + k).detach();
-							s += k;
-						}
-						CalcScore(over[m], &ailast, &plyrlast, len, _s, _s + k);	//prevent the function from being "optimized" by O2 optimization
-						bool running;// one or more of the threads are still running
-						do {
-							running = false;
-							for (int i = 0; i < proccnt; i++)
-								if (!over[i]) {
-									running = true;
-									break;
+								else if (cnt != -1) {
+									plyrlast.score[idn][n][hash] += idn == BD_AI ? BLACK_SCORE[cnt] : WHITE_SCORE[cnt];
+									ailast.score[idn][n][hash] += idn == BD_AI ? WHITE_SCORE[cnt] : BLACK_SCORE[cnt];
 								}
-						} while (running);
-						delete over;
-					}
+							}
+							delete pc;
+						}
 				}
 				void push(Position pos, Board idn) {
 					ailast.push(pos, idn);
