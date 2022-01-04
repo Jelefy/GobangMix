@@ -2,7 +2,7 @@
 #define __MyGobangAI_H
 #include "MyGobangBase.h"
 #include <cstring>
-#include <unordered_set>
+#include <set>
 #include <map>
 #include <cmath>
 #include <cfloat>
@@ -202,9 +202,9 @@ namespace Gobang {
 			}
 			struct MCTSInfo {	//the info of child node
 				int all = 0;	//how many times the child node is selected/simulated
-				long long score = 0x8000000000000001;	//the score of the child node
+				int score = 0x80000001;	//the score of the child node
 				MCTSInfo() {}
-				MCTSInfo(long long _score) {
+				MCTSInfo(int _score) {
 					all++;
 					score = _score;
 				}
@@ -218,7 +218,7 @@ namespace Gobang {
 					for (const std::pair<long long, MCTSInfo>& pr : info)
 						delete ((MCTSNode*)pr.first);
 				}
-				long long Build(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn, const std::map<long long, MCTSInfo>& lastinfo) {
+				int Build(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn, const std::map<long long, MCTSInfo>& lastinfo) {
 					now++;
 					depth = max(depth, now);
 					board[pos.x][pos.y] = idn;
@@ -227,7 +227,7 @@ namespace Gobang {
 						now--;
 						return MAXSCORE;
 					}
-					std::unordered_set<long long> avail;
+					std::set<long long> avail;
 					for (const std::pair<long long, MCTSInfo>& pr : lastinfo) {
 						MCTSNode& nxt = *((MCTSNode*)pr.first);
 						if (nxt.pos != pos)
@@ -242,10 +242,10 @@ namespace Gobang {
 						return 0;
 					}
 					scoreman.push(pos, idn);
-					long long ret = 0x8000000000000001;
+					int ret = 0x80000001;
 					for (long long ll : avail) {
 						Position nxt = ll2Pos(ll);
-						long long ans = GetScore(scoreman, board, Opponent(idn), nxt);
+						int ans = GetScore(scoreman, board, Opponent(idn), nxt);
 						ret = max(ret, ans);
 						info[(long long)(new MCTSNode(nxt))] = MCTSInfo(ans);
 					}
@@ -255,7 +255,7 @@ namespace Gobang {
 					now--;
 					return -ret;
 				}
-				long long MCTS(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn) {
+				int MCTS(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn) {
 					now++;
 					board[pos.x][pos.y] = idn;
 					scoreman.push(pos, idn);
@@ -269,11 +269,11 @@ namespace Gobang {
 							nxt = (MCTSNode*)pr.first;
 						}
 					}
-					long long ret = (*nxt).sum ? (*nxt).MCTS(now, depth, scoreman, board, Opponent(idn)) : (*nxt).Build(now, depth, scoreman, board, Opponent(idn), info);
+					int ret = (*nxt).sum ? (*nxt).MCTS(now, depth, scoreman, board, Opponent(idn)) : (*nxt).Build(now, depth, scoreman, board, Opponent(idn), info);
 					sum++;
 					info[(long long)nxt].all++;
 					info[(long long)nxt].score = ret;
-					ret = 0x8000000000000001;
+					ret = 0x80000001;
 					for (const std::pair<long long, MCTSInfo>& pr : info)
 						ret = max(ret, pr.second.score);
 					board[pos.x][pos.y] = BD_NOPC;
@@ -340,9 +340,13 @@ namespace Gobang {
 				board[pos.x][pos.y] = BD_PLYR;
 				scoreman.push(pos, BD_PLYR);
 				Position ret;
-				long long score = 0x8000000000000001;
+				long double total = log((*root).sum);
+				long double val = -LDBL_MAX;
+				int score = 0x80000001;
 				for (const std::pair<long long, MCTSInfo>& pr : (*root).info) {
-					if (pr.second.score > score) {
+					long double now = pr.second.all ? (long double)pr.second.score / MAXSCORE - sqrt(MCTS_CONFIDENCE * total / pr.second.all) : -LDBL_MAX;
+ 					if (now > val) {
+						val = now;
 						score = pr.second.score;
 						ret = (*((MCTSNode*)pr.first)).pos;
 					}
