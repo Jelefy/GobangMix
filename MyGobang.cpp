@@ -9,7 +9,7 @@ const bool DEBUG = true;	//whether the result(check the PrintResult function) sh
 
 const int GOBANG_SIZE = 15;	//the size of the chessboard
 const int EAZY = 25000, NORMAL = 50000, HARD = 100000;	//how many times the simulation will run before a move
-const int DIFFICULTY = HARD;
+const int DIFFICULTY = 200000;
 
 const wchar_t INITING_TITLE[] = L"初始化中，请稍后...";
 const wchar_t WINDOW_TITLE[] = L"这真的是一个非常非常好玩有趣的五子棋";

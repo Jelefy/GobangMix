@@ -2,8 +2,9 @@
 #define __MyGobangAI_H
 #include "MyGobangBase.h"
 #include <cstring>
+#include <vector>
+#include <stack>
 #include <set>
-#include <map>
 #include <cmath>
 #include <cfloat>
 #include <windows.h>
@@ -35,24 +36,26 @@ namespace Gobang {
 
 		const int DIRCNT = 4;
 		const int DIR[DIRCNT][2] = { {1, 0}, {0, 1}, {1, 1}, {1, -1} };
-		const long long MAXSCORE = 1000000000;
-		const long long BLACK_SCORE[6] = { 7, 35, 800, 15000, 800000, MAXSCORE };	//The score table of the player who is about to make a move
-		const long long WHITE_SCORE[6] = { 7, 15, 400, 1800, 100000, MAXSCORE };	//The score table of the player who has just made a move
+		const int MAXSCORE = 10000000;
+		const int BLACK_SCORE[6] = { 7, 35, 800, 15000, 800000, MAXSCORE };
+		const int WHITE_SCORE[6] = { 7, 15, 400, 1800, 100000, MAXSCORE };
 
-		const long double MCTS_CONFIDENCE = 0.0000001;	//the constant in the UCT formula
+		const long double UCT_CONFIDENCE = 0.002;	//the constants in the UCT/LCT formula
+		const long double LCT_CONFIDENCE = 0.002;
+
 		const int MCTS_BOUND = 1;
 
 		template<int N>
 		class GobangAI {
 		private:
 			Board board[N][N] = {};
-			struct ScoreManager {	//The maintainance of scores using State Compression (compresses the state of single rows: horizonal, vertical, diagonal, then adds their scores together)
+			struct ScoreMaintenance {	//The maintainance of scores using State Compression (compresses the state of single rows: horizonal, vertical, diagonal, then adds their scores together)
 				int pow3[N * 2] = { 1 };
 				int* score[3][N + 1];
 				int ln[N] = {}, col[N] = {}, crx[N * 2] = {}, cry[N * 2] = {};	//ln: horizonal, col: vertical, crx: diagonal (+, +), cry: diagonal (+, -)
 				int crxlen[N * 2], crylen[N * 2];	//the length of diagonal rows
 				int ans[3] = {};	//the score of AI / PLYR
-				ScoreManager() {
+				ScoreMaintenance() {
 					for (int i = 1; i < N * 2; i++)
 						pow3[i] = pow3[i - 1] * 3;
 					for (int i = 1; i < 3; i++)
@@ -94,9 +97,9 @@ namespace Gobang {
 						ans[i] += score[i][N][ln[idln]] + score[i][N][col[idcol]] + score[i][crxlen[idcrx]][crx[idcrx]] + score[i][crylen[idcry]][cry[idcry]];
 				}
 			};
-			struct ScoreManagerManager {	//manage the scoremanager in two different situations (forgive my hilarious naming) as well as calculating the scores of compressed states
-				ScoreManager ailast, plyrlast;	//ailast: AI is the player who has just made a move / plyrlast: similarly
-				ScoreManagerManager() {	//calc the score
+			struct ScoreManager {	//manage the scoremanager in two different situations (forgive my hilarious naming) as well as calculating the scores of compressed states
+				ScoreMaintenance ailast, plyrlast;	//ailast: AI is the player who has just made a move / plyrlast: similarly
+				ScoreManager() {	//calc the score
 					for (int n = 1; n <= N; n++)
 						for (int hash = pow(3, n) - 1; hash >= 0; hash--) {	//I call the compressed state as "hash"
 							int tmp = hash;
@@ -188,7 +191,7 @@ namespace Gobang {
 						}
 				return Position(-1, -1);
 			}
-			static long long GetScore(ScoreManagerManager& scoreman, Board board[N][N], Board idn, Position pos) {	//get the score when the next piece is placed
+			int GetScore(Board idn, Position pos) {	//get the score when the next piece is placed
 				board[pos.x][pos.y] = idn;
 				if (ChkWin(board, pos.x, pos.y)) {
 					board[pos.x][pos.y] = BD_NOPC;
@@ -200,102 +203,107 @@ namespace Gobang {
 				scoreman.pop(pos, idn);
 				return ret;
 			}
-			struct MCTSInfo {	//the info of child node
-				int all = 0;	//how many times the child node is selected/simulated
-				int score = 0x80000001;	//the score of the child node
-				MCTSInfo() {}
-				MCTSInfo(int _score) {
-					all++;
-					score = _score;
-				}
-			};
-			struct MCTSNode {	//the node of the game tree
-				int sum = 0;	//how many times the node is selected/simulated
+			struct MCTSNode {
 				Position pos;
-				std::map<long long, MCTSInfo> info;	//the container containing all pointers to the child nodes and their info
-				MCTSNode(Position _pos) : pos(_pos) {}
-				~MCTSNode() {
-					for (const std::pair<long long, MCTSInfo>& pr : info)
-						delete ((MCTSNode*)pr.first);
+				int sim = 1, score;
+				int head = 0, nxt;
+				MCTSNode() {}
+				MCTSNode(Position _pos, int _score, int _nxt) : pos(_pos), score(_score), nxt(_nxt) {}
+			};
+			std::vector<MCTSNode> node = std::vector<MCTSNode>(1);
+			std::stack<int> nodestk;
+			int NewNode(Position pos, int score, int nxt) {
+				if (nodestk.empty()) {
+					node.push_back(MCTSNode(pos, score, nxt));
+					return node.size() - 1;
 				}
-				int Build(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn, const std::map<long long, MCTSInfo>& lastinfo) {
-					now++;
-					depth = max(depth, now);
-					board[pos.x][pos.y] = idn;
-					if (ChkWin(board, pos.x, pos.y)) {
-						board[pos.x][pos.y] = BD_NOPC;
-						now--;
-						return MAXSCORE;
-					}
-					std::set<long long> avail;
-					for (const std::pair<long long, MCTSInfo>& pr : lastinfo) {
-						MCTSNode& nxt = *((MCTSNode*)pr.first);
-						if (nxt.pos != pos)
-							avail.insert(Pos2ll(nxt.pos));
-					}
-					for (int i = -MCTS_BOUND; i <= MCTS_BOUND; i++)
-						for (int j = -MCTS_BOUND; j <= MCTS_BOUND; j++)
-							if (PointLegal(pos.x + i, pos.y + j) && board[pos.x + i][pos.y + j] == BD_NOPC)
-								avail.insert(Pos2ll(Position(pos.x + i, pos.y + j)));
-					if (avail.empty()) {
-						board[pos.x][pos.y] = BD_NOPC;
-						return 0;
-					}
-					scoreman.push(pos, idn);
-					int ret = 0x80000001;
-					for (long long ll : avail) {
-						Position nxt = ll2Pos(ll);
-						int ans = GetScore(scoreman, board, Opponent(idn), nxt);
-						ret = max(ret, ans);
-						info[(long long)(new MCTSNode(nxt))] = MCTSInfo(ans);
-					}
-					sum++;
+				int ret = nodestk.top();
+				nodestk.pop();
+				node[ret] = MCTSNode(pos, score, nxt);
+				return ret;
+			}
+			void CreateChild(int id, Position pos, int score) {
+				int ret = NewNode(pos, score, node[id].head);
+				node[id].head = ret;
+			}
+			void DeleteTree(int id) {
+				nodestk.push(id);
+				for (int i = node[id].head; i; i = node[i].nxt)
+					DeleteTree(i);
+			}
+			int Build(int id, Board idn, int fa) {
+				Position pos = node[id].pos;
+				board[pos.x][pos.y] = idn;
+				if (ChkWin(board, pos.x, pos.y)) {
 					board[pos.x][pos.y] = BD_NOPC;
-					scoreman.pop(pos, idn);
-					now--;
-					return -ret;
+					return MAXSCORE;
 				}
-				int MCTS(int& now, int& depth, ScoreManagerManager& scoreman, Board board[N][N], Board idn) {
-					now++;
-					board[pos.x][pos.y] = idn;
-					scoreman.push(pos, idn);
-					long double total = log(sum);
-					long double val = -LDBL_MAX;
-					MCTSNode* nxt = NULL;
-					for (const std::pair<long long, MCTSInfo>& pr : info) {
-						long double _val = pr.second.all ? (long double)pr.second.score / MAXSCORE + sqrt(MCTS_CONFIDENCE * total / pr.second.all) : LDBL_MAX;
-						if (_val > val) {
-							val = _val;
-							nxt = (MCTSNode*)pr.first;
-						}
-					}
-					int ret = (*nxt).sum ? (*nxt).MCTS(now, depth, scoreman, board, Opponent(idn)) : (*nxt).Build(now, depth, scoreman, board, Opponent(idn), info);
-					sum++;
-					info[(long long)nxt].all++;
-					info[(long long)nxt].score = ret;
-					ret = 0x80000001;
-					for (const std::pair<long long, MCTSInfo>& pr : info)
-						ret = max(ret, pr.second.score);
+				std::set<Position> avail;
+				for (int i = node[fa].head; i; i = node[i].nxt)
+					if (node[i].pos != pos)
+						avail.insert(node[i].pos);
+				for (int i = -MCTS_BOUND; i <= MCTS_BOUND; i++)
+					for (int j = -MCTS_BOUND; j <= MCTS_BOUND; j++)
+						if (PointLegal(pos.x + i, pos.y + j) && board[pos.x + i][pos.y + j] == BD_NOPC)
+							avail.insert(Position(pos.x + i, pos.y + j));
+				if (avail.empty()) {
 					board[pos.x][pos.y] = BD_NOPC;
-					scoreman.pop(pos, idn);
-					now--;
-					return -ret;
+					return 0;
 				}
-			}*root = NULL;
-			void MoveTo(Board board[N][N], Board idn, Position pos) {	//move the root ptr to a child node of the root and delete other nodes
-				MCTSNode* target = NULL;
-				for (auto pr : (*root).info) {
-					MCTSNode& nxt = *((MCTSNode*)pr.first);
-					if (nxt.pos == pos) {
-						int now, depth;
-						if (nxt.sum == 0)
-							nxt.Build(now, depth, scoreman, board, idn, (*root).info);
-						target = &nxt;
-						break;
+				scoreman.push(pos, idn);
+				int ret = 0x80000001;
+				for (Position nxt : avail) {
+					int ans = GetScore(Opponent(idn), nxt);
+					ret = max(ret, ans);
+					CreateChild(id, nxt, ans);
+				}
+				node[id].sim++;
+				board[pos.x][pos.y] = BD_NOPC;
+				scoreman.pop(pos, idn);
+				return -ret;
+			}
+			int MCTS(int& now, int& depth, int id, Board idn) {
+				now++;
+				depth = max(now + 1, depth);
+				Position pos = node[id].pos;
+				board[pos.x][pos.y] = idn;
+				scoreman.push(pos, idn);
+				long double total = log(node[id].sim);
+				long double val = -LDBL_MAX;
+				int nxt;
+				for (int i = node[id].head; i; i = node[i].nxt) {
+					long double _val = (long double)node[i].score / MAXSCORE + sqrt(UCT_CONFIDENCE * total / node[i].sim);
+					if (_val > val) {
+						val = _val;
+						nxt = i;
 					}
 				}
-				(*root).info.erase((long long)target);
-				delete root;
+				int ret = node[nxt].head ? MCTS(now, depth, nxt, Opponent(idn)) : Build(nxt, Opponent(idn), id);
+				node[id].sim++;
+				node[nxt].score = ret;
+				ret = 0x80000001;
+				for (int i = node[id].head; i; i = node[i].nxt)
+					ret = max(ret, node[i].score);
+				board[pos.x][pos.y] = BD_NOPC;
+				scoreman.pop(pos, idn);
+				now--;
+				return -ret;
+			}
+			int root = 0;
+			void MoveTo(Board idn, Position pos) {	//move the root ptr to a child node of the root and delete other nodes
+				int target;
+				if (node[node[root].head].pos == pos) {
+					target = node[root].head;
+					node[root].head = node[node[root].head].nxt;
+				}
+				else for(int i = node[root].head; i; i = node[i].nxt)
+					if (node[node[i].nxt].pos == pos) {
+						target = node[i].nxt;
+						node[i].nxt = node[node[i].nxt].nxt;
+					}
+				if (!node[target].head)
+					Build(target, idn, root);
+				DeleteTree(root);
 				root = target;
 			}
 
@@ -323,36 +331,36 @@ namespace Gobang {
 				if (vul.x != -1)
 					return Reply(ST_AIWIN, vul.x, vul.y);
 				board[pos.x][pos.y] = BD_NOPC;
-				if (root == NULL) {
-					root = new MCTSNode(pos);
-					(*root).Build(now, depth, scoreman, board, BD_PLYR, std::map<long long, MCTSInfo>());
+				if (!root) {
+					root = NewNode(pos, 0, 0);
+					Build(root, BD_PLYR, 0);
 				}
 				else {
 					bool avail[N][N];
 					GetAvail(board, avail, MCTS_BOUND);
 					if (!avail[pos.x][pos.y])
-						(*root).info[(long long)(new MCTSNode(pos))] = MCTSInfo();
-					MoveTo(board, BD_PLYR, pos);
+						CreateChild(root, pos, 0);
+					MoveTo(BD_PLYR, pos);
 				}
 				while (simtime--)
-					(*root).MCTS(now, depth, scoreman, board, BD_PLYR);
+					MCTS(now, depth, root, BD_PLYR);
 				Depth = depth;
 				board[pos.x][pos.y] = BD_PLYR;
 				scoreman.push(pos, BD_PLYR);
 				Position ret;
-				long double total = log((*root).sum);
+				long double total = log((long double)node[root].sim);
 				long double val = -LDBL_MAX;
 				int score = 0x80000001;
-				for (const std::pair<long long, MCTSInfo>& pr : (*root).info) {
-					long double now = pr.second.all ? (long double)pr.second.score / MAXSCORE - sqrt(MCTS_CONFIDENCE * total / pr.second.all) : -LDBL_MAX;
- 					if (now > val) {
-						val = now;
-						score = pr.second.score;
-						ret = (*((MCTSNode*)pr.first)).pos;
+				for (int i = node[root].head; i; i = node[i].nxt) {
+					long double _val = (long double)node[i].score / MAXSCORE - sqrt(LCT_CONFIDENCE * total / node[i].sim);
+					if (_val > val) {
+						val = _val;
+						score = node[i].score;
+						ret = node[i].pos;
 					}
 				}
 				Score = score;
-				MoveTo(board, BD_AI, ret);
+				MoveTo(BD_AI, ret);
 				board[ret.x][ret.y] = BD_AI;
 				scoreman.push(ret, BD_AI);
 				Time = GetTickCount() - start;
@@ -361,9 +369,8 @@ namespace Gobang {
 			void SetPlyrFirst() {	//nothing has to be done
 			}
 			void SetAIFirst(int x, int y) {
-				int now, depth;
-				root = new MCTSNode(Position(x, y));
-				(*root).Build(now, depth, scoreman, board, BD_AI, std::map<long long, MCTSInfo>());
+				root = NewNode(Position(x, y), 0, 0);
+				Build(root, BD_AI, 0);
 				board[x][y] = BD_AI;
 				scoreman.push(Position(x, y), BD_AI);
 			}
